@@ -50,13 +50,13 @@ public class AirNowGRIB2toJSON {
         FileOutputStream fos = null;  
   
        try {
-           // pass directory path on server to connect  
+           //Connecting to AirNow FTP server to get the fresh AQI data  
            ftpClient.connect("ftp.airnowapi.org");  
-           ftpClient.login("pixelshade", "GZDN8uqduwvk");
-                
+           ftpClient.login("pixelshade", "GZDN8uqduwvk");     
            ftpClient.enterLocalPassiveMode();
            ftpClient.setFileType(FTP.BINARY_FILE_TYPE);
             
+            //downloading .grib2 file
             File of = new File("US-" + GMT.format(new Date()) + "_combined.grib2");
             OutputStream outstr = 
                     new BufferedOutputStream(new FileOutputStream(of));
@@ -67,17 +67,14 @@ public class AirNowGRIB2toJSON {
             while ((bytesRead = instr.read(bytesArray)) != -1) {
                 outstr.write(bytesArray, 0, bytesRead);
             }
- 
-            boolean success = ftpClient.completePendingCommand();
             
+            //Close used resources
+            ftpClient.completePendingCommand();
             outstr.close();
             instr.close();
             
-            if (success) {
-                System.out.println("File #2 has been downloaded successfully.");
-            }
             
-            // logout the user, returned true if logout successfully  
+            // logout the user 
             ftpClient.logout();
             
         } catch (SocketException e) {  
@@ -85,7 +82,8 @@ public class AirNowGRIB2toJSON {
         } catch (IOException e) {  
             e.printStackTrace();  
         } finally {  
-            try {  
+            try {
+                //disconnect from AirNow server
                 ftpClient.disconnect();  
             } catch (IOException e) {  
                 e.printStackTrace();  
@@ -93,35 +91,40 @@ public class AirNowGRIB2toJSON {
         }  
         
         try {
-            //Example GRIB2 file; later implement automatic load of 
-            //the last available grib2 file from AirNow FTP
+            //Open .grib2 file
             final File AQIfile = new File("US-" + GMT.format(new Date()) + "_combined.grib2");
             final GridDataset gridDS = GridDataset.open(AQIfile.getAbsolutePath());
+            
+            //The data type needed - AQI; since it isn't defined in GRIB2 standard,
+            //Aerosol type is used instead; look AirNow API documentation for details.
             GridDatatype AQI = gridDS.findGridDatatype("Aerosol_type_msl");
         
+            //Get the coordinate system for selected data type;
+            //cut the rectangle to work with - time and height axes aren't present in these files
+            //and latitude/longitude go "-1", which means all the data provided.
             GridCoordSystem AQIGCS = AQI.getCoordinateSystem();
-        
             List<CoordinateAxis> AQI_XY = AQIGCS.getCoordinateAxes();
-        
             Array AQIslice = AQI.readDataSlice(0, 0, -1, -1);
-        
+            
+            //Variables for iterating through coordinates
             VariableDS var = AQI.getVariable();
-        
             Index index = AQIslice.getIndex();
                 
+            //Variables for counting lat/long from the indices provided
             double stepX = (AQI_XY.get(2).getMaxValue() - AQI_XY.get(2).getMinValue())/index.getShape(1);
             double stepY = (AQI_XY.get(1).getMaxValue() - AQI_XY.get(1).getMinValue())/index.getShape(0);
-        
             double curX = AQI_XY.get(2).getMinValue();
             double curY = AQI_XY.get(1).getMinValue();
-        
-            OutputStream ValLog = new FileOutputStream("USA_AQI.txt");
+            
+            //Output details
+            OutputStream ValLog = new FileOutputStream("USA_AQI.json");
             Writer ValWriter = new OutputStreamWriter(ValLog);
         
             for(int j=0; j<index.getShape(0); j++){
                 for(int i=0; i<index.getShape(1); i++){
                     float val = AQIslice.getFloat(index.set(j,i));
-                
+                    
+                    //Write the AQI value and its coordinates if it's present by i/j indices
                     if(!Float.isNaN(val)) 
                         ValWriter.write("{\r\n\"lat\":" + curX + ",\r\n\"lng\":" + curY + ",\r\n\"AQI\":" + val + ",\r\n},\r\n");
                 
